@@ -85,7 +85,7 @@
             if( contents[template] === true ){
               contents[template] = tpls[template]
             }
-            else tpls[template].render(contents[template], {insert: true})
+            else contents[template] = tpls[template].render(contents[template], {insert: true})
           }
         }
 
@@ -102,7 +102,7 @@
          * */
         for( prop in contents ){
           if ( ~eventProperties.indexOf(prop) ) {
-            debugger;
+//            debugger;
             addListener(render, prop, contents[prop], elements, tpls)
             delete contents[prop]
           }
@@ -130,19 +130,31 @@
             }
             /*
             * {...}
+            * this comes before checking if the content itself is an Element
+            * because it can become one above
             * */
             else if ( !(content instanceof Element) ) {
               if( content.element instanceof Element ) {
                 element.parentNode.replaceChild(content.element, element)
                 element = content.element
+                delete content.element
+              }
+              else if( typeof content.element == "function" ){
+                element = content.element(element, elements, tpls, render) || element
+                delete content.element
               }
               /*
               * event, attribute
               * */
               for ( var prop in content ) {
-                if ( element.hasAttribute(prop) ) element.setAttribute(prop, content[prop])
+                if( prop == "dataset" ){
+                  for( prop in content.dataset ){
+                    element.dataset[prop] = content.dataset[prop]
+                  }
+                }
                 else if ( ~eventProperties.indexOf(prop) ) addListener(element, prop, content[prop], elements, tpls)
                 else if ( prop in element ) element[prop] = content[prop]
+                else element.setAttribute(prop, content[prop])
               }
             }
             /*
@@ -172,6 +184,7 @@
         }
         else this.parent.appendChild(render)
       }
+      contents.rendered = render
       return render
     },
     addElement: function( element ){
