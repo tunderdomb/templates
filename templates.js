@@ -30,9 +30,9 @@
     })
   }
 
-  function addListener( element, type, cb, elements, templates ){
+  function addListener( element, type, cb, contents ){
     element[listenerMethod](type, function( e ){
-      cb.call(this, e, elements, templates)
+      cb.call(this, e, contents)
     }, false)
   }
 
@@ -103,7 +103,7 @@
         for( prop in contents ){
           if ( ~eventProperties.indexOf(prop) ) {
 //            debugger;
-            addListener(render, prop, contents[prop], elements, tpls)
+            addListener(render, prop, contents[prop], contents)
             delete contents[prop]
           }
         }
@@ -152,7 +152,7 @@
                     element.dataset[prop] = content.dataset[prop]
                   }
                 }
-                else if ( ~eventProperties.indexOf(prop) ) addListener(element, prop, content[prop], elements, tpls)
+                else if ( ~eventProperties.indexOf(prop) ) addListener(element, prop, content[prop], contents)
                 else if ( prop in element ) element[prop] = content[prop]
                 else element.setAttribute(prop, content[prop])
               }
