@@ -30,10 +30,15 @@
     })
   }
 
-  function addListener( element, type, cb, contents ){
+  function addListener( element, type, cb, contents, context ){
     element[listenerMethod](type, function( e ){
-      cb.call(this, e, contents)
+      cb.call(context||this, e, contents)
     }, false)
+  }
+
+  function dataset( el, prop, val ){
+    if( el.dataset ) return val == undefined ? el.dataset[prop] : el.dataset[prop] = val
+    return val == undefined ? el.getAttribute("data-"+prop) : el.setAttribute("data-"+prop, val)
   }
 
   function Template( template ){
@@ -44,42 +49,41 @@
 
   Template.prototype = {
     render: function( contents, options ){
-      var render = this.template.cloneNode(true)
+      options = options || {}
+      contents = contents || {}
+
+      var render = options.render ? this.template : this.template.cloneNode(true)
       // it's important to pluck templates first, so only local content nodes will be collected
         , tpls = getTemplates(render)
         , contentNodes = getContentNodes(render, tpls)
         , element
         , elements = {}
         , i = -1
+        , eventContext = options.context === true ? contents : options.context
 
-      options = options || {}
-      contents = contents || {}
-
-//       map contents
+      //       map contents
       while ( element = contentNodes[++i] ) {
         elements[camelCase(element.getAttribute(templates.CONTENT_ATTR))] = element
       }
-//      for( var e in elements ) console.log("this."+e+" = {}")
-//      for( var e in tpls ) console.log("this."+e+" = {}")
 
-//       use render function
+      //       use render function
       if ( typeof contents == "function" ) {
         render = contents(elements, tpls, render) || render
       }
-//       use content map to render
+      //       use content map to render
       else {
         var template
           , content
           , name
         /*
-        * render templates first, because they don't want their anchor node to disappear suddenly
-        * and being inserted into a wrong place
-        * e.g template.next disappears, and template inserts as lastChild but wrongly because it wasn't a lastChild
-        *
-        * false means don't render template
-        * true means cache but don't render
-        * anything else will be taken as render options
-        * */
+         * render templates first, because they don't want their anchor node to disappear suddenly
+         * and being inserted into a wrong place
+         * e.g template.next disappears, and template inserts as lastChild but wrongly because it wasn't a lastChild
+         *
+         * false means don't render template
+         * true means cache but don't render
+         * anything else will be taken as render options
+         * */
         for ( template in tpls ) {
           if ( contents[template] !== false ) {
             if( contents[template] === true ){
@@ -93,7 +97,7 @@
         /* dataset */
         if( contents.dataset && !elements.dataset ) {
           for( var data in contents.dataset ){
-            render.dataset[data] = contents.dataset[data]
+            dataset(render, data, contents.dataset[data])
           }
         }
 
@@ -102,78 +106,76 @@
          * */
         for( prop in contents ){
           if ( ~eventProperties.indexOf(prop) ) {
-//            debugger;
             addListener(render, prop, contents[prop], contents)
             delete contents[prop]
           }
         }
 
         /*
-        * then render elements with no fear
-        * */
+         * then render elements with no fear
+         * */
         for ( name in elements ) {
           element = elements[name]
-          if ( content = contents[name] ) {
-            /*
-            * function
-            * */
-            if ( typeof content == "function" ) {
-              content = content(element, elements, tpls, render)
+          content = contents[name]
+          if ( content != undefined ) {
+            if ( content === false ) {
+              element.parentNode.removeChild(element)
             }
             /*
-            * textContent, src, value
-            * */
-            else if ( typeof content == "string" ) {
+             * function
+             * */
+            else if ( typeof content == "function" ) {
+              content = content.call(eventContext, element, elements, tpls, render)
+            }
+            /*
+             * textContent, src, value
+             * */
+            else if ( typeof content == "string" || typeof content == "number" ) {
               if ( "value" in element ) element.value = content
               else if ( "src" in element ) element.src = content
               else element.textContent = content
             }
             /*
-            * {...}
-            * this comes before checking if the content itself is an Element
-            * because it can become one above
-            * */
-            else if ( !(content instanceof Element) ) {
-              if( content.element instanceof Element ) {
+             * {...}
+             * this comes before checking if the content itself is an Element
+             * because it can become one above
+             * */
+            else if ( !(content instanceof Node) ) {
+              if( content.element instanceof Node ) {
                 element.parentNode.replaceChild(content.element, element)
                 element = content.element
-                delete content.element
               }
               else if( typeof content.element == "function" ){
-                element = content.element(element, elements, tpls, render) || element
-                delete content.element
+                element = content.element.call(eventContext, element, elements, tpls, render) || element
               }
               /*
-              * event, attribute
-              * */
+               * event, attribute
+               * */
               for ( var prop in content ) {
                 if( prop == "dataset" ){
                   for( prop in content.dataset ){
-                    element.dataset[prop] = content.dataset[prop]
+                    dataset(element, prop, content.dataset[prop])
                   }
                 }
-                else if ( ~eventProperties.indexOf(prop) ) addListener(element, prop, content[prop], contents)
+                else if ( ~eventProperties.indexOf(prop) ) addListener(element, prop, content[prop], contents, eventContext)
                 else if ( prop in element ) element[prop] = content[prop]
-                else element.setAttribute(prop, content[prop])
+                else element.setAttribute && element.setAttribute(prop, content[prop])
               }
             }
             /*
-            * Element
-            * */
-            if ( content instanceof Element ) {
+             * Element
+             * */
+            if ( content instanceof Node ) {
               if ( element != content )
                 element.parentNode.replaceChild(content, element)
               element = content
             }
             /*
-            * set rendered element on content object
-            * */
+             * set rendered element on content object
+             * */
             contents[name] = element
           }
-          else if ( content === false ) {
-            element.parentNode.removeChild(element)
-          }
-          element.removeAttribute(templates.CONTENT_ATTR)
+          element.removeAttribute && element.removeAttribute(templates.CONTENT_ATTR)
         }
       }
 
@@ -184,8 +186,13 @@
         }
         else this.parent.appendChild(render)
       }
-      contents.rendered = render
-      return render
+      if( !elements.template && !tpls.template ){
+        contents.template = this
+      }
+      if( typeof contents.rendered == "function" ) contents.rendered.call(eventContext, render)
+      return contents.rendered = dataset(render, "fragment") || options.fragment
+        ? transferNodes(render, doc.createDocumentFragment())
+        : render
     },
     addElement: function( element ){
       if ( !(this.template instanceof DocumentFragment) ) {
@@ -197,6 +204,10 @@
     }
   }
 
+  function transferNodes( from, to ){
+    while( from.firstChild ) to.appendChild(from.firstChild)
+    return to
+  }
   function filterElements( element, filter, deep ){
     var children = element.children || element
       , i = -1
@@ -217,9 +228,9 @@
   }
 
   /*
-  * we can go deep here, because by now, all the templates should have been plucked out
-  * and we can't collect a nested template's content node
-  * */
+   * we can go deep here, because by now, all the templates should have been plucked out
+   * and we can't collect a nested template's content node
+   * */
   function getContentNodes( template ){
     return filterElements(template, function( node ){
       return node.hasAttribute(templates.CONTENT_ATTR)
@@ -266,6 +277,11 @@
     return tpls
   }
 
+  function createTemplate( el ){
+    return new Template(el)
+  }
+
   templates.getTemplates = getTemplates
+  templates.createTemplate = createTemplate
   host.templates = templates
 }(window, document, this);
